@@ -1,0 +1,431 @@
+---
+title: "Raport 4"
+author: "Oliwia Binkul"
+date: "`r Sys.Date()`"
+output: pdf_document
+toc: TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+read.table("income.dat", header = FALSE)
+
+income_data = read.table("income.dat")
+colnames(income_data) <- c("indeks", "wiek", "wykształcenie", "płeć", "zarobki", "sektor")
+income_data
+```
+
+## Wstęp 
+
+Estymacja przedziałowa to metoda wnioskowania statystycznego polegająca na wyznaczaniu przedziału liczbowego (tzw. przedziału ufności). Zamiast wskazywać pojedynczą wartosć, szacuje ona rzeczywisty parametr w populacji z określonym prawdopodobieństwem.
+Raport ma na celu weryfikacę właściwści wybranych przedziałów ufności poprzez zastosowanie metod symulacyjnych Monte Carlo.
+
+\newpage
+
+## Zadanie 1
+
+### Eksperyment
+
+Przeprowadzamy eksperymetn 1000 razy w celu oceny prawdopodobieństwa pokrycia parametru przez przedziały ufności na poziomie $$ 1 - \alpha = 0.95$$. Zgodnie ze statystyką przy nienznanej wariancji będziemy używać rozkładu **t - studenta**. Prawdopodobieństwo pokrycia w tym rozkładzie określa wzór:  $$ P(\bar{X} - t_{1 - \alpha / 2, n - 1} \frac{S}{\sqrt{n}} < \mu <  \bar{X} + t_{1 - \alpha / 2, n - 1} \frac{S}{\sqrt{n}}) = 1 - \alpha $$ 
+
+Natomiast przedział ufności dla wariancji budujemy w oparciu o statystykę o rozkładzie **chi - kwadrat**: 
+
+$$P(\frac{(n - 1)S^2}{\chi^2_{1 - \alpha / 2, n - 1}} < \sigma^2 < \frac{(n - 1)S^2}{\chi^2_{\alpha / 2, n - 1}} < \sigma^2) = 1 - \alpha $$ 
+
+gdzie n - liczebnosć próby, $\bar{X}$ - średnia próby, S - odchylenie standardowe próby.
+
+
+```{r, include = FALSE}
+alpha = 0.05
+
+
+reliable_mean <- function(dane, alpha = 0.05){
+  n <- length(dane)
+  mean_1 <- mean(dane)
+  stnd_dev_1 <- sd(dane)
+  
+  kwant_t <- qt(1 - alpha/2, df = n - 1)
+  
+  margine <- kwant_t * (stnd_dev_1 / sqrt(n))
+  
+  min_1 <- mean_1 - margine
+  max_1 <- mean_1 + margine
+  
+  return(c(min_1, max_1))
+}
+
+reliable_var <- function(dane, alpha = 0.05){
+  n <- length(dane)
+  var_prob <- var(dane)
+  
+  chi_min <- qchisq(1 - alpha/2, df = n - 1)
+  chi_max <- qchisq(alpha/2, df = n - 1)
+  
+  min_2 <- ((n - 1) * var_prob) / chi_min
+  max_2 <- ((n - 1) * var_prob) / chi_max
+  
+  return(c(min_2, max_2))
+}
+
+n_powt = 1000
+
+simulation <- function(n_obs, n_powt, real_mean, real_var, rozklad, param1, param2 = NULL){
+  
+  cover_mean <- numeric(n_powt)
+  cover_var <- numeric(n_powt)
+  
+  for(i in 1:n_powt){
+    if (rozklad == "normalny"){
+      dane <- rnorm(n_obs, mean = param1, sd = param2)
+    } else if (rozklad == "t-student"){
+      dane <- rt(n_obs, df = param1)
+    }
+    
+    section_sr <- reliable_mean(dane)
+    section_var <- reliable_var(dane)
+    
+    if (real_mean >= section_sr[1] && real_mean <= section_sr[2]){
+      cover_mean[i] <- 1
+    }
+     if (real_var >= section_var[1] && real_var <= section_var[2]){
+       cover_var[i] <- 1
+     }              
+  }
+  
+  prob_cover_mean <- mean(cover_mean)
+  prob_cover_var <- mean(cover_var)
+  
+  return(c(Pokrycie_sredniej = prob_cover_mean, Pokrycie_wariancji = prob_cover_var))
+}
+```
+
+```{r obliczenia, echo=FALSE, message=FALSE, warning=FALSE}
+set.seed(1989)
+
+wektor_n <- c(10, 50, 200)
+n_powt <- 1000
+rozklady <- c("N(0,1)", "N(0,4)", "t(3)", "t(10)", "t(30)")
+
+wyniki_srednia <- matrix(ncol = 3, nrow = 5)
+wyniki_wariancja <- matrix(ncol = 3, nrow = 5)
+
+
+rownames(wyniki_srednia) <- rozklady
+rownames(wyniki_wariancja) <- rozklady
+colnames(wyniki_srednia) <- paste0("n = ", wektor_n)
+colnames(wyniki_wariancja) <- paste0("n = ", wektor_n)
+
+
+for (j in 1:length(wektor_n)) {
+  n <- wektor_n[j]
+  
+
+  res_a <- simulation(n_obs = n, n_powt = n_powt, real_mean = 0, real_var = 1, rozklad = "normalny", param1 = 0, param2 = 1)
+  wyniki_srednia[1, j] <- res_a["Pokrycie_sredniej"]
+  wyniki_wariancja[1, j] <- res_a["Pokrycie_wariancji"]
+  
+ 
+  res_b <- simulation(n_obs = n, n_powt = n_powt, real_mean = 0, real_var = 4, rozklad = "normalny", param1 = 0, param2 = 2)
+  wyniki_srednia[2, j] <- res_b["Pokrycie_sredniej"]
+  wyniki_wariancja[2, j] <- res_b["Pokrycie_wariancji"]
+  
+
+  res_c <- simulation(n_obs = n, n_powt = n_powt, real_mean = 0, real_var = 3/(3-2), rozklad = "t-student", param1 = 3)
+  wyniki_srednia[3, j] <- res_c["Pokrycie_sredniej"]
+  wyniki_wariancja[3, j] <- res_c["Pokrycie_wariancji"]
+  
+
+  res_d <- simulation(n_obs = n, n_powt = n_powt, real_mean = 0, real_var = 10/(10-2), rozklad = "t-student", param1 = 10)
+  wyniki_srednia[4, j] <- res_d["Pokrycie_sredniej"]
+  wyniki_wariancja[4, j] <- res_d["Pokrycie_wariancji"]
+  
+  
+  res_e <- simulation(n_obs = n, n_powt = n_powt, real_mean = 0, real_var = 30/(30-2), rozklad = "t-student", param1 = 30)
+  wyniki_srednia[5, j] <- res_e["Pokrycie_sredniej"]
+  wyniki_wariancja[5, j] <- res_e["Pokrycie_wariancji"]
+}
+```
+
+```{r tabele, echo=FALSE}
+library(knitr)
+
+kable(wyniki_srednia, 
+      caption = "Prawdopodobieństwo pokrycia dla wartości oczekiwanej (poziom ufności 0.95)",
+      digits = 3,  
+      align = 'c') 
+
+
+kable(wyniki_wariancja, 
+      caption = "Prawdopodobieństwo pokrycia dla wariancji (poziom ufności 0.95)",
+      digits = 3, 
+      align = 'c')
+```
+
+### Analiza wartości po wykonaniu symulacji
+
+Analizując wyniki przeprowadzonej symulacji na podstawie wartości w tabelkach możemy stwoerdzić, że przedział ufności dla średniej chrakteryzuje się dużą odpornością na odstępstwa odstępstwa przy założeniu rozkładu normalnego. Dane pochodzące z rozkładu normanego $N(0,1)$ oraz $N(0, 4)$ pokrywają się na zauważalnie bardzo dobrym poziomie z zakładanym poziomem $0.95$ dla każdej wielkości próby. Analizując przypadek rozkładu t - studenta o małym stopniu swobody (t(3)) i małej próbie jesteśmy w stanie zauważyć odchylenia wyliczonych wartości w stosunku do wartości $0.95$. Wzrost n jednak gwarantuje nam coraz to lepsze pokrycie i stabilizacje wartości w okolicach bardzo dobrze pokrywających się z wartością 0.95.
+Widzimy jednak, że przedział ufności dla wariancji njest bardziej wrażliwy gdy nie posługujemy się rozkładem normalnym. Dla rozkładu normalnego tabelka symulacji wariancji nie odbiega znacząco od wartości 0.95, natomiast dla rozkładu t - studenta zauważamy różnicę w wartościach. Dla t(3) w wariancji zauważamy silne odbieganie od wartości 0.95 i w tym przypadku wzrost rozmiaru próby znacząco nie poprawia nam wartości.
+
+**Wielkośc próby** - Zgodnie z oczekiwaniami zwiększenie próby (n = 10, ..., n = 200) stabilizuje wyniki estymacji. Zwiększenie próby sprawia, że wariancja estymatorów maleje a otzrymane w tym zabiegu odsetki grupują się wokół teoretycznego poziomu ufności.
+
+## Zadanie 2
+
+Celem zadania jest porównanie prawdopodobieństwa pokrycia wartości parametru $\theta$ przez dwa przedziały ufności na poziomie $1 - \alpha = 0.95$.
+
+**Klasyczy przedział ufności** - Przedział Walda charakteryzuje się tym, że rozkład proporcji w próbie można przybliżyć rozkładem normalnym. Wzór na przedział : 
+$$\hat{p} - z_{1-\alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{n}} < \theta < \hat{p} + z_{1-\alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{n}}$$
+
+gdzie $\hat{p} = \frac{x}{n}$ to proporcja sukcesów w próbie, a $z_{1-\alpha/2}$ to odpowiedni kwantyl rozkładu normalnego.
+
+**Przedział Agrestiego - Coulla** - Jest to modyfikacja klasycznego przedziału, polegająca na sztucznym dodaniu sukcesów i porażek. Eliminuje błędy pokrycia występujące dla małych prób i skrajnych prawdopodbieństw. Definiujemy zmodyfikowaną liczbę prób $\tilde{n} = n + z_{1-\alpha/2}^2$ oraz zmodyfikowaną proporcję $\tilde{p} = \frac{x + z_{1-\alpha/2}^2/2}{\tilde{n}}$. Wzór przyjmuje postać:
+
+$$\tilde{p} - z_{1-\alpha/2} \sqrt{\frac{\tilde{p}(1-\tilde{p})}{\tilde{n}}} < \theta < \tilde{p} + z_{1-\alpha/2} \sqrt{\frac{\tilde{p}(1-\tilde{p})}{\tilde{n}}}$$
+```{r, include = FALSE}
+library(tidyr)
+library(ggplot2) 
+
+classic_part <- function(dane, alpha = 0.05){
+  n <- length(dane)
+  x <- sum(dane)
+  p_hat <- x / n
+  
+  qwart_norm <- qnorm(1 - alpha/2)
+  
+  margin_1 <- qwart_norm * sqrt((p_hat * (1 - p_hat)) / n)
+  
+  min_1 <- p_hat - margin_1
+  max_1 <- p_hat + margin_1
+  
+  return(c(min_1, max_1))
+}
+
+c_a_part <- function(dane, alpha = 0.05){
+  n <- length(dane)
+  x <- sum(dane)
+  qwart_norm <- qnorm(1 - alpha/2)
+  
+  n_modif <- n + qwart_norm^2
+  p_modif <- (x + (qwart_norm^2)/2)/n_modif
+  
+  margin_2 <- qwart_norm * sqrt((p_modif * (1 - p_modif)) / n_modif)
+  
+  min_2 <- p_modif - margin_2
+  max_2 <- p_modif + margin_2
+  
+  return(c(min_2, max_2))
+}
+
+simulation_2 <- function(n_obs, theta_v, n_powt = 1000){
+
+  results <- data.frame(
+    Theta = theta_v,
+    Pokrycie_normalne = numeric(length(theta_v)),
+    Pokrycie_AC = numeric(length(theta_v))
+  )
+  
+  for(j in 1:length(theta_v)){
+    theta_1 <- theta_v[j]
+    
+    cover_klas <- numeric(n_powt)
+    cover_as <- numeric(n_powt)
+    
+    for (i in 1:n_powt){
+      dane <- rbinom(n_obs, size = 1, prob = theta_1)
+      
+      part_klas <- classic_part(dane)
+      part_ac <- c_a_part(dane)
+      
+   
+      if (!is.na(part_klas[1]) && theta_1 >= part_klas[1] && theta_1 <= part_klas[2]){
+        cover_klas[i] <- 1
+      }
+      
+      if (!is.na(part_ac[1]) && theta_1 >= part_ac[1] && theta_1 <= part_ac[2]){
+        cover_as[i] <- 1
+      }
+    }
+    
+
+    results$Pokrycie_normalne[j] <- mean(cover_klas)
+    results$Pokrycie_AC[j] <- mean(cover_as)
+  }
+  
+  return(results)
+}
+
+set.seed(1989)
+
+thety_zad <- c(0.005, 0.01, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5)
+
+result_n20 <- simulation_2(n_obs = 20, theta_v = thety_zad)
+print(result_n20)
+
+result_n50 <- simulation_2(n_obs = 50, theta_v = thety_zad)
+print(result_n50)
+
+result_n100 <- simulation_2(n_obs = 100, theta_v = thety_zad)
+print(result_n100)
+
+
+result_n1000 <- simulation_2(n_obs = 1000, theta_v = thety_zad)
+print(result_n1000)
+
+
+
+result_n20$n <- 20
+result_n50$n <- 50
+result_n100$n <- 100
+result_n1000$n <- 1000
+
+all_result <- rbind(result_n20, result_n50, result_n100, result_n1000)
+
+
+data_classic <- all_result[, c("Theta", "n", "Pokrycie_normalne")]
+colnames(data_classic)[3] <- "Pokrycie"
+data_classic$Metoda <- "Przedział Klasyczny"
+
+
+data_ac <- all_result[, c("Theta", "n", "Pokrycie_AC")]
+colnames(data_ac)[3] <- "Pokrycie"
+data_ac$Metoda <- "Przedział Agrestiego-Coulla"
+
+data_plot <- rbind(data_classic, data_ac)
+```
+
+```{r tabele_zad2, echo=FALSE, warning=FALSE, message=FALSE}
+library(knitr)
+library(tidyr)
+
+
+tabela_klasyczna <- all_result[, c("Theta", "n", "Pokrycie_normalne")] |>
+  pivot_wider(names_from = n, values_from = Pokrycie_normalne, names_prefix = "n = ")
+
+tabela_ac <- all_result[, c("Theta", "n", "Pokrycie_AC")] |>
+  pivot_wider(names_from = n, values_from = Pokrycie_AC, names_prefix = "n = ")
+
+
+kable(tabela_klasyczna, 
+      caption = "Prawdopodobieństwo pokrycia - Przedział Klasyczny",
+      digits = 3, 
+      align = 'c')
+
+
+kable(tabela_ac, 
+      caption = "Prawdopodobieństwo pokrycia - Przedział Agrestiego-Coulla",
+      digits = 3, 
+      align = 'c')
+```
+
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ggplot(data_plot, aes(x = factor(Theta), y = factor(n), fill = Pokrycie)) + 
+  geom_tile(color = "black", linewidth = 0.5) + 
+  facet_wrap(~Metoda, ncol = 1) + 
+  scale_fill_gradient2(low = "green", mid = "black", high = "white",
+                       midpoint = 0.95, limits = c(0,1),
+                       name = "Prawdopodobienstwo\n_pokrycia") + 
+  labs(title = "Skutecznosc przedzialow ufnosci (Heatmap)",
+       subtitle = "Porównanie metody Klasycznej i metody Agrestiego - Coulla",
+       x = "Wartosc parametru Theta",
+       y = "Rozmiar proby n") +
+  theme_minimal() + 
+  theme(
+    strip.text = element_text(size = 12, face = "bold"),
+    plot.title = element_text(size = 14, face = "bold")
+  )
+```
+
+### Analiza zadania
+
+Na podstawie heatmapy możemy zauważyć różnice w zachowaniu obu metod estymacji.
+
+**Klasyczny przedział ufnści** - Z wykresu możemy odczytać, że klasyczny przedział ufności nie jest w stanie utrzymać zadanego poziomu ufności 0.95 dla małych prób (n = 20). Jest to wynikiem częstego zjawiska braku sukcesów w małych i bardzo małych próbach, szacowana propotcja w takim przypadku wynosi 0 więc długość przedziału spada do poziomu 0.Efeketem takiego zachowania jest fakt, że przedział niemal w żadnych przypadku nie pokrywa prawdziwej wartości parametru co jednoznacznie dyskwalifikuje tę metodę w takich warunkach.
+
+**Przedział Agresiego - Coulla** - Heat mapa dla tej metody wykazuje zdecydowanie bardziej stabilne pokrycie oscylujące przy pczekiwanym poziomie 0.95. Dodanie w tej metodzie sztucznych sukcesów i porażek skutecznie niweluje problem zera. Metoda ta zapewnia nam prawidłowe pokryxie nawet w małych próbkach.
+
+Dla odpowiednio dużych rozmiarów prób (widoczne przy n = 100 lub n = 1000) i dla wartości theta oscylującej w okolicach środka przedziału różnice między emtodami są wręcz niezauważalne.
+
+
+## Zadanie 3
+
+```{r zadanie3_obliczenia, echo=FALSE, message=FALSE, warning=FALSE}
+dane_income <- read.table("income.dat", header = TRUE)
+colnames(dane_income) <- c("indeks", "wiek", "wykształcenie", "płeć", "zarobki", "sektor")
+
+populacja_zarobki <- dane_income$zarobki
+
+trust_mean <- function(dane, alpha = 0.05){
+  n <- length(dane)
+  mean_1 <- mean(dane)
+  standard_d_1 <- sd(dane)
+  
+  qwant_1 <- qt(1 - alpha/2, df = n - 1)
+  margin_1 <- qwant_1 * (standard_d_1 / sqrt(n))
+  
+  return(c(mean_1 - margin_1, mean_1 + margin_1))
+}
+
+symulate_income <- function(populacja_zarobki, n_obs, n_powt = 1000){
+  real_mean <- mean(populacja_zarobki)
+  
+  cover_vector <- numeric(n_powt)
+  vector_mean <- numeric(n_powt)
+  
+  for (i in 1:n_powt){
+    sample_1 <- sample(populacja_zarobki, size = n_obs, replace = FALSE)
+    
+    przedzial <- trust_mean(sample_1)
+    vector_mean[i] <- mean(sample_1)
+    
+    if (real_mean >= przedzial[1] && real_mean <= przedzial[2]){
+      cover_vector[i] <- 1
+    }
+  }
+  
+  return(list(
+    Skutecznosc = mean(cover_vector),
+    Zapisane_srednie = vector_mean,
+    Prawdziwa_srednia = real_mean
+  ))
+}
+
+set.seed(1989)
+
+res_n50 <- symulate_income(populacja_zarobki, n_obs = 50)
+res_n100 <- symulate_income(populacja_zarobki, n_obs = 100)
+res_n200 <- symulate_income(populacja_zarobki, n_obs = 200)
+```
+
+```{r zadanie3_wykresy, echo=FALSE, warning=FALSE, message=FALSE}
+wyniki_lista <- list("50" = res_n50, "100" = res_n100, "200" = res_n200)
+
+for (n_str in names(wyniki_lista)) {
+  res <- wyniki_lista[[n_str]]
+  
+  par(mfrow = c(1,2))
+
+  
+
+  hist(res$Zapisane_srednie, breaks = 30, prob = TRUE, 
+       main = paste("Histogram srednich (n =", n_str, ")"),
+       xlab = "Wartosc sredniej z proby", 
+       ylab = "Gestosc",
+       col = "blue", border = "white")
+  
+  curve(dnorm(x, mean = mean(res$Zapisane_srednie), sd = sd(res$Zapisane_srednie)),
+        col = "red", lwd = 2, add = TRUE)
+  
+
+  qqnorm(res$Zapisane_srednie, main = paste("Wykres Q-Q (n =", n_str, ")"))
+  qqline(res$Zapisane_srednie, col = "red", lwd = 2)
+  
+}
+
+par(mfrow = c(1, 1)) 
+```
+
+
+### Analiza zadania
+
+Na podstawie histogramów i wykresów kwantylowo - kwantylowych dla średnich z prób jesteśmy w stanie stwierdzić, że och rozkład jest bardzo zblizony do rozkładu normalnego. Zjawisko to bezpośrednio wskazuje na CTG (Centralne Twierdzenie Graniczne), gdzie wraz ze wzrostem liczby prób rozkład średniej z prób dąży do rozkładu normalnego pierwotnej populacji.
+Możemy również zaobserwować, że wraz ze wzrostem wielkości próby rozrzut wartości średnich maleje i rozkład staje się smuklejszy oraz bardziej skupiony wokół prawdziwej średniej populacyjnej. Wynika to z faktu, że błąd standardowy średniej maleje proporcjonalnie do pierwiastka z n. Oznacza to, że przy większej próbie otrzymujemy węższe i bardziej precyzyjne przedziały ufności.
